@@ -1,5 +1,6 @@
-streamlit==1.64.0
-tensorflow==2.20.0
+streamlit
+streamlit-webrtc
 opencv-python-headless
-numpy<2.3
-pillow
+tensorflow
+numpy
+av
