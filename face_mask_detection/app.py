@@ -1,9 +1,16 @@
+import os
 import cv2
 import numpy as np
 import streamlit as st
 from tensorflow.keras.models import load_model
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 import av
+
+# Resolve paths relative to this script's own folder, not the process's
+# working directory (Streamlit Cloud runs from the repo root, not this
+# subfolder, so a plain relative filename can fail to be found).
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "mask_detector.h5")
 
 # -----------------------------
 # Page Config
@@ -18,7 +25,7 @@ st.write("Real-time face mask detection using your webcam.")
 # -----------------------------
 @st.cache_resource
 def get_model():
-    return load_model("mask_detector.h5")
+    return load_model(MODEL_PATH)
 
 model = get_model()
 
