@@ -6,11 +6,39 @@ import streamlit as st
 from tensorflow.keras.models import load_model
 
 st.set_page_config(
-    page_title="Face Mask Detection - MobileNetV2",
+    page_title="Face Mask Detection AI",
     page_icon="😷",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Custom Styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #38bdf8;
+        margin-bottom: 0.2rem;
+    }
+    .status-badge-mask {
+        background-color: #065f46;
+        color: #34d399;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+    .status-badge-nomask {
+        background-color: #7f1d1d;
+        color: #f87171;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # Path resolution for local run vs Streamlit Cloud
@@ -28,7 +56,7 @@ for p in POSSIBLE_MODEL_PATHS:
         break
 
 # ---------------------------------------------------------
-# Caching Model and Face Detector
+# Cached Model and Face Detector Loaders
 # ---------------------------------------------------------
 @st.cache_resource
 def load_mask_model():
@@ -45,19 +73,15 @@ def load_face_detector():
 try:
     model = load_mask_model()
     face_detector = load_face_detector()
-    model_loaded = True
+    model_ready = True
 except Exception as e:
-    model_loaded = False
-    load_error = str(e)
+    model_ready = False
+    load_err = str(e)
 
 # ---------------------------------------------------------
-# Core Detection Function
+# Detection Engine
 # ---------------------------------------------------------
-def process_image(image_bgr, min_neighbors=5, scale_factor=1.1):
-    """
-    Detects faces in image_bgr, predicts Mask / No Mask for each face,
-    and returns the annotated image and detection statistics.
-    """
+def detect_and_classify_faces(image_bgr, min_neighbors=5, scale_factor=1.1):
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     faces = face_detector.detectMultiScale(
         gray, scaleFactor=scale_factor, minNeighbors=min_neighbors
@@ -83,30 +107,29 @@ def process_image(image_bgr, min_neighbors=5, scale_factor=1.1):
         if mask_prob > no_mask_prob:
             label = "Mask"
             confidence = mask_prob
-            color = (0, 255, 0) # Green in BGR
+            box_color = (0, 220, 0) # Green in BGR
         else:
             label = "No Mask"
             confidence = no_mask_prob
-            color = (0, 0, 255) # Red in BGR
+            box_color = (0, 0, 220) # Red in BGR
 
         detections.append({
             "label": label,
             "confidence": confidence,
             "mask_prob": mask_prob,
             "no_mask_prob": no_mask_prob,
-            "bbox": (x, y, w, h)
+            "box": (x, y, w, h)
         })
 
-        # Draw bounding box and label
-        cv2.rectangle(annotated, (x, y), (x + w, y + h), color, 3)
+        cv2.rectangle(annotated, (x, y), (x + w, y + h), box_color, 3)
         tag = f"{label}: {confidence:.1f}%"
         cv2.putText(
             annotated,
             tag,
-            (x, max(20, y - 10)),
+            (x, max(25, y - 10)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            color,
+            0.75,
+            box_color,
             2,
             cv2.LINE_AA
         )
@@ -117,160 +140,126 @@ def process_image(image_bgr, min_neighbors=5, scale_factor=1.1):
 # ---------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------
-st.sidebar.title("😷 Mask Detector")
+st.sidebar.markdown("## ⚙️ Model Settings")
 st.sidebar.markdown(
-    "Powered by **MobileNetV2** Transfer Learning trained to classify faces as **Mask** or **No Mask** (~98.7% accuracy)."
+    "**Architecture:** MobileNetV2 Transfer Learning\n\n"
+    "**Accuracy:** ~98.7% Validation Accuracy\n\n"
+    "**Input Size:** 224 × 224 RGB"
 )
 
-st.sidebar.subheader("Detection Settings")
-scale_factor = st.sidebar.slider("Face Detector Scale Factor", 1.05, 1.4, 1.1, 0.05, help="Parameter specifying how much the image size is reduced at each image scale.")
-min_neighbors = st.sidebar.slider("Min Neighbors", 3, 10, 5, 1, help="Higher values result in fewer detections but with higher quality.")
+st.sidebar.markdown("---")
+st.sidebar.subheader("Detection Sensitivity")
+scale_factor = st.sidebar.slider("Face Scale Factor", 1.05, 1.40, 1.10, 0.05)
+min_neighbors = st.sidebar.slider("Min Neighbors", 3, 10, 5, 1)
 
-plot_path = os.path.join(BASE_DIR, "face_mask_detection", "accuracy_plot.png")
-if os.path.exists(plot_path):
+plot_file = os.path.join(BASE_DIR, "face_mask_detection", "accuracy_plot.png")
+if os.path.exists(plot_file):
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### Model Performance")
-    st.sidebar.image(plot_path, caption="MobileNetV2 Training & Validation Curves", use_container_width=True)
+    st.sidebar.image(plot_file, caption="MobileNetV2 Training Curve", use_container_width=True)
 
 # ---------------------------------------------------------
-# Main Page
+# Main App Header
 # ---------------------------------------------------------
-st.title("🛡️ Real-Time Face Mask Detection System")
-st.markdown(
-    "Detect whether individuals are wearing face masks using **MobileNetV2** and **OpenCV**."
-)
+st.markdown('<div class="main-header">😷 Face Mask Detection AI</div>', unsafe_allow_html=True)
+st.markdown("Real-time AI detection powered by **MobileNetV2** and **OpenCV**. Works reliably across all browsers and devices.")
 
-if not model_loaded:
-    st.error(f"Error loading model: {load_error}")
+if not model_ready:
+    st.error(f"Error loading model weights: {load_err}")
     st.stop()
 
-tab_upload, tab_camera, tab_live, tab_about = st.tabs([
-    "📁 Upload Image",
-    "📸 Webcam Snapshot",
-    "🎥 Live Video Stream",
-    "ℹ️ About Model"
+# ---------------------------------------------------------
+# Input Mode Tabs
+# ---------------------------------------------------------
+tab_camera, tab_upload = st.tabs([
+    "📸 Live Camera Snapshot",
+    "📁 Upload Image File"
 ])
 
-# ---------- TAB 1: UPLOAD IMAGE ----------
-with tab_upload:
-    st.subheader("Upload an Image to Detect Masks")
-    uploaded_file = st.file_uploader("Choose an image (JPG, PNG, JPEG)", type=["jpg", "jpeg", "png"])
-    
-    if uploaded_file is not None:
-        pil_image = Image.open(uploaded_file).convert("RGB")
-        image_np = np.array(pil_image)
-        image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-
-        with st.spinner("Analyzing image..."):
-            annotated_img, detections = process_image(image_bgr, min_neighbors, scale_factor)
-
-        col1, col2 = st.columns([1.5, 1])
-        with col1:
-            st.image(annotated_img, caption="Detection Result", use_container_width=True)
-            
-        with col2:
-            st.markdown(f"### Detected Faces: **{len(detections)}**")
-            if len(detections) == 0:
-                st.warning("No faces detected. Try adjusting the 'Min Neighbors' slider in the sidebar.")
-            else:
-                for idx, det in enumerate(detections):
-                    badge = "🟢" if det["label"] == "Mask" else "🔴"
-                    st.markdown(
-                        f"""
-                        **Face #{idx + 1}: {badge} {det['label']}**
-                        * Confidence: `{det['confidence']:.2f}%`
-                        * Mask Probability: `{det['mask_prob']:.2f}%`
-                        * No Mask Probability: `{det['no_mask_prob']:.2f}%`
-                        ---
-                        """
-                    )
-
-# ---------- TAB 2: WEBCAM SNAPSHOT ----------
+# ---------- TAB 1: LIVE CAMERA SNAPSHOT ----------
 with tab_camera:
-    st.subheader("Take a Snapshot with Your Camera")
-    st.markdown("Works natively on desktop and mobile browsers without special permissions.")
-    camera_file = st.camera_input("Capture Photo")
+    st.subheader("Webcam Input")
+    st.markdown("Click **'Take Photo'** below to capture and analyze your face in real-time.")
+    
+    camera_photo = st.camera_input("Capture camera frame")
+    
+    if camera_photo is not None:
+        pil_img = Image.open(camera_photo).convert("RGB")
+        img_np = np.array(pil_img)
+        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
 
-    if camera_file is not None:
-        pil_image = Image.open(camera_file).convert("RGB")
-        image_np = np.array(pil_image)
-        image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        with st.spinner("Analyzing frame with MobileNetV2..."):
+            annotated_img, detections = detect_and_classify_faces(img_bgr, min_neighbors, scale_factor)
 
-        with st.spinner("Classifying face mask..."):
-            annotated_img, detections = process_image(image_bgr, min_neighbors, scale_factor)
+        col_img, col_metrics = st.columns([1.4, 1])
+        with col_img:
+            st.image(annotated_img, caption="Detection Output", use_container_width=True)
 
-        col1, col2 = st.columns([1.5, 1])
-        with col1:
-            st.image(annotated_img, caption="Camera Analysis Result", use_container_width=True)
-        with col2:
+        with col_metrics:
             st.markdown(f"### Detected Faces: **{len(detections)}**")
             if len(detections) == 0:
-                st.info("No face detected. Please ensure your face is well-lit and facing the camera.")
+                st.warning("⚠️ No face found in this frame. Ensure your face is centered and well-lit.")
             else:
-                for idx, det in enumerate(detections):
-                    badge = "🟢" if det["label"] == "Mask" else "🔴"
+                for i, d in enumerate(detections):
+                    badge_class = "status-badge-mask" if d["label"] == "Mask" else "status-badge-nomask"
                     st.markdown(
                         f"""
-                        **Face #{idx + 1}: {badge} {det['label']}**
-                        * Confidence: `{det['confidence']:.2f}%`
-                        * Mask Probability: `{det['mask_prob']:.2f}%`
-                        * No Mask Probability: `{det['no_mask_prob']:.2f}%`
-                        ---
-                        """
+                        <div style="background:#1e293b; padding:14px; border-radius:10px; margin-bottom:12px; border:1px solid #334155;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <strong>Face #{i+1}</strong>
+                                <span class="{badge_class}">{d['label']}</span>
+                            </div>
+                            <div style="font-size:0.85rem; color:#94a3b8;">
+                                Confidence: <strong>{d['confidence']:.1f}%</strong>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
                     )
+                    st.write("Mask Probability:")
+                    st.progress(d["mask_prob"] / 100.0)
+                    st.write("No-Mask Probability:")
+                    st.progress(d["no_mask_prob"] / 100.0)
 
-# ---------- TAB 3: LIVE WEBRTC STREAM ----------
-with tab_live:
-    st.subheader("Real-Time WebRTC Video Stream")
-    st.markdown("Continuous live detection using WebRTC streamer.")
+# ---------- TAB 2: UPLOAD IMAGE ----------
+with tab_upload:
+    st.subheader("Upload an Image")
+    st.markdown("Upload any JPG, JPEG, or PNG image to detect masks on one or multiple people.")
+    uploaded_file = st.file_uploader("Select an image file", type=["jpg", "jpeg", "png"])
 
-    try:
-        from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
-        import av
+    if uploaded_file is not None:
+        pil_img = Image.open(uploaded_file).convert("RGB")
+        img_np = np.array(pil_img)
+        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
 
-        RTC_CONFIG = RTCConfiguration(
-            {
-                "iceServers": [
-                    {"urls": ["stun:stun.l.google.com:19302"]},
-                    {"urls": ["stun:stun1.l.google.com:19302"]},
-                    {"urls": ["stun:stun2.l.google.com:19302"]},
-                    {"urls": ["stun:stun3.l.google.com:19302"]},
-                    {"urls": ["stun:stun4.l.google.com:19302"]},
-                    {"urls": ["stun:stun.services.mozilla.com"]},
-                    {"urls": ["stun:global.stun.twilio.com:3478"]}
-                ]
-            }
-        )
+        with st.spinner("Scanning faces..."):
+            annotated_img, detections = detect_and_classify_faces(img_bgr, min_neighbors, scale_factor)
 
-        class LiveMaskProcessor(VideoProcessorBase):
-            def recv(self, frame):
-                img = frame.to_ndarray(format="bgr24")
-                annotated_rgb, _ = process_image(img, min_neighbors, scale_factor)
-                out_bgr = cv2.cvtColor(annotated_rgb, cv2.COLOR_RGB2BGR)
-                return av.VideoFrame.from_ndarray(out_bgr, format="bgr24")
+        col_img, col_metrics = st.columns([1.4, 1])
+        with col_img:
+            st.image(annotated_img, caption="Analyzed Image", use_container_width=True)
 
-        webrtc_streamer(
-            key="face-mask-live",
-            video_processor_factory=LiveMaskProcessor,
-            rtc_configuration=RTC_CONFIG,
-            media_stream_constraints={"video": True, "audio": False},
-        )
-    except Exception as webrtc_err:
-        st.warning(f"WebRTC mode note: {webrtc_err}. You can also use the 'Webcam Snapshot' tab above for immediate capture.")
-
-# ---------- TAB 4: ABOUT MODEL ----------
-with tab_about:
-    st.subheader("Architecture & Technical Details")
-    st.markdown("""
-    ### 🔬 Pipeline Overview
-    1. **Face Localization:** Haar Feature-based Cascade Classifier locates human faces in the input frame.
-    2. **Preprocessing:** Extracted bounding boxes are converted from BGR to RGB, resized to $(224 \\times 224)$, normalized to range $[0, 1]$.
-    3. **Transfer Learning (MobileNetV2):**
-       * Base model pre-trained on ImageNet extracts spatial feature maps efficiently with depthwise separable convolutions.
-       * Custom classification head: `AveragePooling2D` $\\to$ `Flatten` $\\to$ `Dense(128, ReLU)` $\\to$ `Dropout(0.5)` $\\to$ `Dense(2, Softmax)`.
-    4. **Classification:** Softmax output yields probabilities for `[Mask, No Mask]`.
-    
-    ### 📈 Model Highlights
-    * **Validation Accuracy:** $\\approx 98.7\\%$
-    * **Low Latency:** Designed for lightweight real-time edge and mobile inference.
-    """)
+        with col_metrics:
+            st.markdown(f"### Detected Faces: **{len(detections)}**")
+            if len(detections) == 0:
+                st.info("No faces detected in this image. You can try adjusting the sensitivity sliders in the sidebar.")
+            else:
+                for i, d in enumerate(detections):
+                    badge_class = "status-badge-mask" if d["label"] == "Mask" else "status-badge-nomask"
+                    st.markdown(
+                        f"""
+                        <div style="background:#1e293b; padding:14px; border-radius:10px; margin-bottom:12px; border:1px solid #334155;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <strong>Face #{i+1}</strong>
+                                <span class="{badge_class}">{d['label']}</span>
+                            </div>
+                            <div style="font-size:0.85rem; color:#94a3b8;">
+                                Confidence: <strong>{d['confidence']:.1f}%</strong>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    st.write("Mask Probability:")
+                    st.progress(d["mask_prob"] / 100.0)
+                    st.write("No-Mask Probability:")
+                    st.progress(d["no_mask_prob"] / 100.0)
